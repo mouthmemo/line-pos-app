@@ -1,0 +1,181 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>店内オーダーシステム</title>
+    <script charset="utf-8" src="https://static.line-scdn.net/liff/edge/2/sdk.js"></script>
+    <style>
+        body { font-family: sans-serif; margin: 0; padding: 20px; background-color: #f5f5f5; }
+        h1 { font-size: 20px; text-align: center; margin-bottom: 20px; }
+        
+        /* ローディング・エラー表示用 */
+        #status-message { text-align: center; margin-top: 50px; font-weight: bold; }
+        .hidden { display: none; }
+
+        /* メニューリストのデザイン */
+        .category-title { font-size: 18px; margin-top: 30px; border-bottom: 2px solid #333; padding-bottom: 5px; }
+        .menu-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 15px; margin-top: 15px; }
+        .menu-item { background: white; border-radius: 8px; overflow: hidden; box-shadow: 0 2px 5px rgba(0,0,0,0.1); padding-bottom: 10px; }
+        
+        /* 画像プレースホルダー */
+        .img-placeholder { width: 100%; height: 120px; background-color: #ccc; display: flex; align-items: center; justify-content: center; color: #666; font-size: 12px; }
+        
+        .item-name { font-weight: bold; margin: 10px 10px 5px; font-size: 14px; }
+        .item-price { color: #e74c3c; margin: 0 10px; font-weight: bold; }
+        
+        button.order-btn { display: block; width: 90%; margin: 10px auto 0; padding: 8px; background: #06c755; color: white; border: none; border-radius: 4px; cursor: pointer; }
+        button.order-btn:active { background: #05b34c; }
+
+    </style>
+</head>
+<body>
+
+    <div id="app">
+        <h1>メニュー注文</h1>
+        
+        <div id="status-message">
+            位置情報を確認中...<br>
+            <small>※位置情報の利用を許可してください</small>
+        </div>
+
+        <div id="menu-container" class="hidden">
+            </div>
+    </div>
+
+<script>
+    // ==========================================
+    // 【設定エリア】ここを書き換えてください
+    // ==========================================
+    
+    // 1. LINE Developersで取得したLIFF ID
+    const MY_LIFF_ID = "2008921315-Q3qiVxkG"; 
+
+    // 2. 店舗の緯度経度（Googleマップで右クリックして取得）
+    // 例: 渋谷スクランブル交差点付近
+    const STORE_LAT = 35.681695140649346; 
+    const STORE_LNG = 139.65773613188082;
+
+    // 3. 許容する半径（メートル）
+    const ALLOWED_RADIUS_METERS = 100; 
+
+    // ==========================================
+    // メニューデータ
+    // ==========================================
+    const menuData = [
+        {
+            category: "Drink",
+            items: [
+                { name: "ドリンク①", price: 500, img: "" },
+                { name: "ドリンク②", price: 500, img: "" },
+                { name: "ドリンク③", price: 600, img: "" }
+            ]
+        },
+        {
+            category: "Food",
+            items: [
+                { name: "フード①", price: 800, img: "" },
+                { name: "フード②", price: 900, img: "" },
+                { name: "フード③", price: 1200, img: "" }
+            ]
+        },
+        {
+            category: "Sound Horror",
+            items: [
+                { name: "サウンドホラー①", price: 0, img: "" },
+                { name: "サウンドホラー②", price: 0, img: "" },
+                { name: "サウンドホラー③", price: 0, img: "" }
+            ]
+        }
+    ];
+
+    // ==========================================
+    // ロジック
+    // ==========================================
+
+    // 2点間の距離を計算する関数 (Haversine formula)
+    function getDistance(lat1, lon1, lat2, lon2) {
+        const R = 6371000; // 地球の半径 (m)
+        const dLat = (lat2 - lat1) * Math.PI / 180;
+        const dLon = (lon2 - lon1) * Math.PI / 180;
+        const a = Math.sin(dLat/2) * Math.sin(dLat/2) +
+                  Math.cos(lat1 * Math.PI / 180) * Math.cos(lat2 * Math.PI / 180) *
+                  Math.sin(dLon/2) * Math.sin(dLon/2);
+        const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1-a));
+        return R * c;
+    }
+
+    // メニューを描画する関数
+    function renderMenu() {
+        const container = document.getElementById('menu-container');
+        let html = '';
+
+        menuData.forEach(cat => {
+            html += `<div class="category-title">${cat.category}</div>`;
+            html += `<div class="menu-grid">`;
+            cat.items.forEach(item => {
+                html += `
+                <div class="menu-item">
+                    <div class="img-placeholder">NO IMAGE</div>
+                    <div class="item-name">${item.name}</div>
+                    <div class="item-price">¥${item.price}</div>
+                    <button class="order-btn" onclick="alert('${item.name}をカートに追加しました')">追加</button>
+                </div>`;
+            });
+            html += `</div>`;
+        });
+
+        container.innerHTML = html;
+        container.classList.remove('hidden'); // メニューを表示
+        document.getElementById('status-message').classList.add('hidden'); // メッセージを隠す
+    }
+
+    // メイン処理
+    async function main() {
+        // LIFF初期化
+        try {
+            await liff.init({ liffId: MY_LIFF_ID });
+            if (!liff.isLoggedIn()) {
+                liff.login();
+                return;
+            }
+        } catch (err) {
+            document.getElementById('status-message').innerText = "LIFF初期化エラー: " + err;
+            return;
+        }
+
+        // 位置情報の取得
+        if (!navigator.geolocation) {
+            document.getElementById('status-message').innerText = "お使いの端末はGPSに対応していません。";
+            return;
+        }
+
+        navigator.geolocation.getCurrentPosition(
+            (position) => {
+                const userLat = position.coords.latitude;
+                const userLng = position.coords.longitude;
+                
+                const distance = getDistance(userLat, userLng, STORE_LAT, STORE_LNG);
+
+                // 距離判定
+                if (distance <= ALLOWED_RADIUS_METERS) {
+                    // 店内(範囲内) -> メニュー表示
+                    renderMenu();
+                } else {
+                    // 店外(範囲外)
+                    document.getElementById('status-message').innerHTML = 
+                        `お店から離れています。<br>（現在地から約${Math.round(distance)}m）<br>店内でアクセスしてください。`;
+                }
+            },
+            (error) => {
+                document.getElementById('status-message').innerText = 
+                    "位置情報の取得に失敗しました。設定で位置情報を許可してください。";
+            }
+        );
+    }
+
+    main();
+
+</script>
+</body>
+</html>e aí 
